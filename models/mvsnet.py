@@ -70,6 +70,61 @@ class CostRegNet(nn.Module):
         return x
 
 
+class UpscaleNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.upsample = torch.nn.Upsample(scale_factor=4, mode='bilinear')
+
+        self.imageFeatureNet = nn.Sequential(
+            ConvBnReLU(  3,  32),
+            ConvBnReLU( 32,  64),
+            ConvBnReLU( 64,  64),
+        )
+
+        self.depthFeatureNet1 = nn.Sequential(
+            ConvBnReLU(  1,  32),
+            ConvBnReLU( 32,  64),
+            ConvBnReLU( 64, 128),
+            ConvBnReLU(128, 256),
+        )
+
+        self.deconv1 = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),
+            nn.ReflectionPad2d((1, 0, 1, 0)),
+            nn.AvgPool2d(2, stride=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.depthFeatureNet2 = nn.Sequential(
+            ConvBnReLU(128, 128),
+        )
+
+        self.deconv2 = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),
+            nn.ReflectionPad2d((1, 0, 1, 0)),
+            nn.AvgPool2d(2, stride=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.outputNet = nn.Sequential(
+            ConvBnReLU(128, 64),
+            ConvBnReLU( 64, 64),
+            ConvBnReLU( 64, 32),
+            nn.Conv2d(32, 1, 3, 1, 1)
+        )
+
+    def forward(self, depth, img):
+        depth = depth.unsqueeze(1)
+        intp_depth = self.upsample(depth)
+
+        image_feature = self.imageFeatureNet(img)
+        depth_feature = self.deconv2(self.depthFeatureNet2(self.deconv1(self.depthFeatureNet1(depth))))
+        
+        depth_residual = self.outputNet(torch.cat((image_feature, depth_feature), dim=1))
+        
+        return depth_residual + intp_depth
+
+
 class RefineNet(nn.Module):
     def __init__(self):
         super(RefineNet, self).__init__()
@@ -86,14 +141,18 @@ class RefineNet(nn.Module):
 
 
 class MVSNet(nn.Module):
-    def __init__(self, refine=True):
+    def __init__(self, refine=False, upsample=True):
         super(MVSNet, self).__init__()
         self.refine = refine
+        self.upsample = upsample
 
         self.feature = FeatureNet()
         self.cost_regularization = CostRegNet()
         if self.refine:
             self.refine_network = RefineNet()
+
+        if self.upsample:
+            self.upsample_network = UpscaleNet()
 
     def forward(self, imgs, proj_matrices, depth_values):
         imgs = torch.unbind(imgs, 1)
@@ -141,12 +200,21 @@ class MVSNet(nn.Module):
             depth_index = depth_regression(prob_volume, depth_values=torch.arange(num_depth, device=prob_volume.device, dtype=torch.float)).long()
             photometric_confidence = torch.gather(prob_volume_sum4, 1, depth_index.unsqueeze(1)).squeeze(1)
 
-        # step 4. depth map refinement
-        if not self.refine:
+        # # step 4. depth map refinement
+        # if not self.refine:
+        #     return {"depth": depth, "photometric_confidence": photometric_confidence}
+        # else:
+        #     refined_depth = self.refine_network(torch.cat((imgs[0], depth), 1))
+        #     return {"depth": depth, "refined_depth": refined_depth, "photometric_confidence": photometric_confidence}
+
+        # step 4. depth upsampling
+        if not self.upsample:
             return {"depth": depth, "photometric_confidence": photometric_confidence}
         else:
-            refined_depth = self.refine_network(torch.cat((imgs[0], depth), 1))
-            return {"depth": depth, "refined_depth": refined_depth, "photometric_confidence": photometric_confidence}
+            refined_depth = self.upsample_network(depth, imgs[0]).squeeze(1)
+            photometric_confidence = photometric_confidence.unsqueeze(1)
+            photometric_confidence = F.interpolate(photometric_confidence, scale_factor=4, mode='bilinear').squeeze(1)
+            return {"depth": refined_depth, "photometric_confidence": photometric_confidence, 'org_depth': depth}
 
 
 def mvsnet_loss(depth_est, depth_gt, mask):

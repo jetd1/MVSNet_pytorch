@@ -4,43 +4,43 @@ import os
 from PIL import Image
 from datasets.data_io import *
 
-
 # the DTU dataset preprocessed by Yao Yao (only for training)
-class MVSDataset(Dataset):
-    def __init__(self, datapath, listfile, mode, nviews, ndepths=192, interval_scale=1.06, **kwargs):
-        super(MVSDataset, self).__init__()
+class RISDataset(Dataset):
+    def __init__(self, datapath, listfile, mode, nviews, ndepths=192, subset='denoised', **kwargs):
+        super().__init__()
         self.datapath = datapath
         self.listfile = listfile
         self.mode = mode
         self.nviews = nviews
         self.ndepths = ndepths
-        self.interval_scale = interval_scale
+        self.subset = subset
+        self.mask_mode = mask_mode
+        # self.interval_scale = interval_scale
 
-        assert self.mode == "test"
-        self.metas = self.build_list()
+        assert self.mode in ["test"]
+        assert self.subset in ['noisy', 'denoised', 'albedo']
+
+        assert self.nviews <= 5
+        self.pairs = self.build_list()
 
     def build_list(self):
-        metas = []
+        print('Building pair list...')
+        pairs = []
         with open(self.listfile) as f:
-            scans = f.readlines()
-            scans = [line.rstrip() for line in scans]
+            objs = f.read().strip().splitlines()
 
-        # scans
-        for scan in scans:
-            pair_file = "{}/pair.txt".format(scan)
-            # read the pair file
-            with open(os.path.join(self.datapath, pair_file)) as f:
-                num_viewpoint = int(f.readline())
-                # viewpoints (49)
-                for view_idx in range(num_viewpoint):
-                    ref_view = int(f.readline().rstrip())
-                    src_views = [int(x) for x in f.readline().rstrip().split()[1::2]]
-                    metas.append((scan, ref_view, src_views))
-        print("dataset", self.mode, "metas:", len(metas))
-        return metas
+        for obj in objs:
+            obj_path = os.path.join(self.datapath, obj)
+            view_samples = os.listdir(obj_path)
+            for view_id in view_samples:
+                for i in range(5):
+                    pairs.append((obj, view_id, i))
+
+        print("dataset", self.mode, "pairs:", len(pairs))
+        return pairs
 
     def __len__(self):
-        return len(self.metas)
+        return len(self.pairs)
 
     def read_cam_file(self, filename):
         with open(filename) as f:
@@ -53,27 +53,29 @@ class MVSDataset(Dataset):
         intrinsics[:2, :] /= 4
         # depth_min & depth_interval: line 11
         depth_min = float(lines[11].split()[0])
-        depth_interval = float(lines[11].split()[1]) * self.interval_scale
+        depth_max = float(lines[11].split()[1])
+        depth_interval = round(10 * (depth_max - depth_min) / (self.ndepths - 1)) / 10
+        # depth_interval = 3
         return intrinsics, extrinsics, depth_min, depth_interval
 
     def read_img(self, filename):
         img = Image.open(filename)
         # scale 0~255 to 0~1
         np_img = np.array(img, dtype=np.float32) / 255.
-        assert np_img.shape[:2] == (1200, 1600)
-        # crop to (1184, 1600)
-        np_img = np_img[:-16, :]  # do not need to modify intrinsics if cropping the bottom part
+        assert np_img.shape[:2] == (600, 800)
+        # crop to (576, 800)
+        np_img = np_img[:-24, :, :3]  # do not need to modify intrinsics if cropping the bottom part
         return np_img
 
     def read_depth(self, filename):
         # read pfm depth file
-        return np.array(read_pfm(filename)[0], dtype=np.float32)
+        return np.load(filename) * 1000
 
     def __getitem__(self, idx):
-        meta = self.metas[idx]
-        scan, ref_view, src_views = meta
+        pair = self.pairs[idx]
+        obj, view_id, ref_view = pair
         # use only the reference view and first nviews-1 source views
-        view_ids = [ref_view] + src_views[:self.nviews - 1]
+        cam_ids = [(ref_view + i) % 5 for i in range(5)]
 
         imgs = []
         mask = None
@@ -81,9 +83,9 @@ class MVSDataset(Dataset):
         depth_values = None
         proj_matrices = []
 
-        for i, vid in enumerate(view_ids):
-            img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jpg'.format(scan, vid))
-            proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, vid))
+        for i, vid in enumerate(cam_ids):
+            img_filename = os.path.join(self.datapath, f'{obj}/{view_id}/{self.subset}/{vid}.png')
+            proj_mat_filename = os.path.join(self.datapath, f'{obj}/{view_id}/cams/{vid}.txt')
 
             imgs.append(self.read_img(img_filename))
             intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename)
@@ -103,14 +105,18 @@ class MVSDataset(Dataset):
         return {"imgs": imgs,
                 "proj_matrices": proj_matrices,
                 "depth_values": depth_values,
-                "filename": scan + '/{}/' + '{:0>8}'.format(view_ids[0]) + "{}"}
+                "filename": f'{obj}/{view_id}' + '/{}/' + f'{cam_ids[0]}' + '{}'}
 
-_dataset = MVSDataset
+_dataset = RISDataset
 
 if __name__ == "__main__":
     # some testing code, just IGNORE it
-    dataset = MVSDataset("/home/xyguo/dataset/dtu_mvs/processed/mvs_testing/dtu/", '../lists/dtu/test.txt', 'test', 5,
-                         128)
-    item = dataset[50]
+    a = '/wdata/indoor/realistic_indoor_dataset/filescripts/tmp_testlock_largescale_results'
+    b = '/wdata/indoor/realistic_indoor_dataset/filescripts/tmp_testlock_largescale_results/test.txt'
+    dataset = RISDataset(a, b, 'test', 5, 192)
+    item = dataset[1]
     for key, value in item.items():
         print(key, type(value))
+
+    import IPython
+    IPython.embed()

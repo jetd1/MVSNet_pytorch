@@ -93,7 +93,7 @@ def read_pair_file(filename):
 def save_depth():
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
-    test_dataset = MVSDataset(args.testpath, args.testlist, "test", 5, args.numdepth, args.interval_scale)
+    test_dataset = MVSDataset(args.testpath, args.testlist, "test", 5, args.numdepth, interval_scale=args.interval_scale)
     TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
 
     # model
@@ -119,14 +119,16 @@ def save_depth():
             # save depth maps and confidence maps
             for filename, depth_est, photometric_confidence in zip(filenames, outputs["depth"],
                                                                    outputs["photometric_confidence"]):
-                depth_filename = os.path.join(args.outdir, filename.format('depth_est', '.pfm'))
-                confidence_filename = os.path.join(args.outdir, filename.format('confidence', '.pfm'))
+                depth_filename = os.path.join(args.outdir, filename.format('depth_est', '.npy'))
+                confidence_filename = os.path.join(args.outdir, filename.format('confidence', '.npy'))
                 os.makedirs(depth_filename.rsplit('/', 1)[0], exist_ok=True)
                 os.makedirs(confidence_filename.rsplit('/', 1)[0], exist_ok=True)
                 # save depth maps
-                save_pfm(depth_filename, depth_est)
+                np.save(depth_filename, depth_est)
+                # save_pfm(depth_filename, depth_est)
                 # save confidence maps
-                save_pfm(confidence_filename, photometric_confidence)
+                np.save(confidence_filename, photometric_confidence)
+                # save_pfm(confidence_filename, photometric_confidence)
 
 
 # project the reference point cloud into the source view, then project back
@@ -208,9 +210,9 @@ def filter_depth(scan_folder, out_folder, plyfilename):
         # load the reference image
         ref_img = read_img(os.path.join(scan_folder, 'images/{:0>8}.jpg'.format(ref_view)))
         # load the estimated depth of the reference view
-        ref_depth_est = read_pfm(os.path.join(out_folder, 'depth_est/{:0>8}.pfm'.format(ref_view)))[0]
+        ref_depth_est = np.load(os.path.join(out_folder, 'depth_est/{:0>8}.npy'.format(ref_view)))
         # load the photometric mask of the reference view
-        confidence = read_pfm(os.path.join(out_folder, 'confidence/{:0>8}.pfm'.format(ref_view)))[0]
+        confidence = np.load(os.path.join(out_folder, 'confidence/{:0>8}.npy'.format(ref_view)))
         photo_mask = confidence > 0.8
 
         all_srcview_depth_ests = []
@@ -225,7 +227,7 @@ def filter_depth(scan_folder, out_folder, plyfilename):
             src_intrinsics, src_extrinsics = read_camera_parameters(
                 os.path.join(scan_folder, 'cams/{:0>8}_cam.txt'.format(src_view)))
             # the estimated depth of the source view
-            src_depth_est = read_pfm(os.path.join(out_folder, 'depth_est/{:0>8}.pfm'.format(src_view)))[0]
+            src_depth_est = np.load(os.path.join(out_folder, 'depth_est/{:0>8}.npy'.format(src_view)))
 
             geo_mask, depth_reprojected, x2d_src, y2d_src = check_geometric_consistency(ref_depth_est, ref_intrinsics, ref_extrinsics,
                                                                       src_depth_est,
@@ -299,15 +301,18 @@ def filter_depth(scan_folder, out_folder, plyfilename):
 
 if __name__ == '__main__':
     # step1. save all the depth maps and the masks in outputs directory
-    # save_depth()
+    save_depth()
 
     with open(args.testlist) as f:
         scans = f.readlines()
         scans = [line.rstrip() for line in scans]
 
     for scan in scans:
-        scan_id = int(scan[4:])
+        # scan_id = int(scan[4:])
+        scan_name = scan.split('/')[-1]
         scan_folder = os.path.join(args.testpath, scan)
         out_folder = os.path.join(args.outdir, scan)
+        os.makedirs(scan_folder, exist_ok=True)
+        os.makedirs(out_folder, exist_ok=True)
         # step2. filter saved depth maps with photometric confidence maps and geometric constraints
-        filter_depth(scan_folder, out_folder, os.path.join(args.outdir, 'mvsnet{:0>3}_l3.ply'.format(scan_id)))
+        filter_depth(scan_folder, out_folder, os.path.join(args.outdir, 'mvsnet_{}_l3.ply'.format(scan_name)))

@@ -38,6 +38,10 @@ parser.add_argument('--wd', type=float, default=0.0, help='weight decay')
 parser.add_argument('--batch_size', type=int, default=12, help='train batch size')
 parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')
 parser.add_argument('--interval_scale', type=float, default=1.06, help='the number of depth values')
+parser.add_argument('--mask_mode', type=str, default='valid')
+parser.add_argument('--subset', type=str, default='denoised')
+parser.add_argument('--original_scale', action='store_true')
+parser.add_argument('--ndownscale', type=int, default=2)
 
 parser.add_argument('--loadckpt', default=None, help='load a specific checkpoint')
 parser.add_argument('--logdir', default='./checkpoints/debug', help='the directory to save checkpoints/logs')
@@ -74,13 +78,13 @@ print_args(args)
 
 # dataset, dataloader
 MVSDataset = find_dataset_def(args.dataset)
-train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", 3, args.numdepth, args.interval_scale)
-test_dataset = MVSDataset(args.testpath, args.testlist, "test", 5, args.numdepth, args.interval_scale)
+train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, align=32)
+test_dataset = MVSDataset(args.testpath, args.testlist, "test", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, align=32)
 TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, drop_last=True)
 TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
 
 # model, optimizer
-model = MVSNet(refine=False)
+model = MVSNet(upsample=args.original_scale)
 if args.mode in ["train", "test"]:
     model = nn.DataParallel(model)
 model.cuda()
@@ -96,14 +100,14 @@ if (args.mode == "train" and args.resume) or (args.mode == "test" and not args.l
     loadckpt = os.path.join(args.logdir, saved_models[-1])
     print("resuming", loadckpt)
     state_dict = torch.load(loadckpt)
-    model.load_state_dict(state_dict['model'])
+    load_my_state_dict(state_dict['model'], model)
     optimizer.load_state_dict(state_dict['optimizer'])
     start_epoch = state_dict['epoch'] + 1
 elif args.loadckpt:
     # load checkpoint file specified by args.loadckpt
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt)
-    model.load_state_dict(state_dict['model'])
+    load_my_state_dict(state_dict['model'], model)
 print("start at epoch {}".format(start_epoch))
 print('Number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
@@ -230,6 +234,7 @@ def test_sample(sample, detailed_summary=True):
     scalar_outputs["thres2mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 2)
     scalar_outputs["thres4mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 4)
     scalar_outputs["thres8mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 8)
+    scalar_outputs["thres16mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 16)
 
     return tensor2float(loss), tensor2float(scalar_outputs), image_outputs
 

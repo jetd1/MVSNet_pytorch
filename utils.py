@@ -22,6 +22,17 @@ def make_nograd_func(func):
     return wrapper
 
 
+def load_my_state_dict(state_dict, model):
+    own_state = model.state_dict()
+    for name, param in state_dict.items():
+        if name not in own_state:
+                continue
+        if isinstance(param, torch.nn.Parameter):
+            # backwards compatibility for serialized parameters
+            param = param.data
+        own_state[name].copy_(param)
+
+
 # convert a function into recursive style to handle nested dict/list/tuple variables
 def make_recursive_func(func):
     def wrapper(vars):
@@ -87,7 +98,7 @@ def save_images(logger, mode, images_dict, global_step):
             raise NotImplementedError("invalid img shape {}:{} in save_images".format(name, img.shape))
         if len(img.shape) == 3:
             img = img[:, np.newaxis, :, :]
-        img = torch.from_numpy(img[:1])
+        img = torch.from_numpy(img[:1]).float()
         return vutils.make_grid(img, padding=0, nrow=1, normalize=True, scale_each=True)
 
     for key, value in images_dict.items():

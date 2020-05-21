@@ -110,6 +110,8 @@ class MVSDataset(Dataset):
                 "depth_values": depth_values,
                 "mask": mask}
 
+_dataset = MVSDataset
+
 
 if __name__ == "__main__":
     # some testing code, just IGNORE it

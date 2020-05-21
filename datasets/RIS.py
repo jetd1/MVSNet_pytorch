@@ -1,15 +1,17 @@
 from torch.utils.data import Dataset
 import numpy as np
 import os
+import cv2
 import math
 from PIL import Image
 from datasets.data_io import *
 
 EPS = 0.1
+cv2.setNumThreads(0)
 
 # the DTU dataset preprocessed by Yao Yao (only for training)
 class RISDataset(Dataset):
-    def __init__(self, datapath, listfile, mode, nviews, ndepths=192, mask_mode='valid', subset='denoised', align=0, ndownscale=2, **kwargs):
+    def __init__(self, datapath, listfile, mode, nviews, ndepths=192, mask_mode='valid', subset='denoised', align=0, ndownscale=2, original_scale=False, **kwargs):
         super().__init__()
         self.datapath = datapath
         self.listfile = listfile
@@ -20,6 +22,7 @@ class RISDataset(Dataset):
         self.mask_mode = mask_mode
         self.align = align
         self.ndownscale = ndownscale
+        self.original_scale = original_scale
         # self.interval_scale = interval_scale
 
         assert isinstance(self.align, int)
@@ -77,21 +80,24 @@ class RISDataset(Dataset):
     def read_mask(self, filename):
         img = Image.open(filename)
         # scale 0~255 to 0~1
-        np_img = np.array(img, dtype=np.float32) / 255.
+        full_mask = np.array(img, dtype=np.float32) / 255.
         if self.align > 0:
-            np_img = np_img[:(np_img.shape[0] // self.align) * self.align, :(np_img.shape[1] // self.align) * self.align]
+            full_mask = full_mask[:(full_mask.shape[0] // self.align) * self.align, :(full_mask.shape[1] // self.align) * self.align]
+        low_mask = full_mask
         for _ in range(self.ndownscale):
-            np_img = np_img[::2, ::2]
-        return np_img
+            low_mask = low_mask[::2, ::2]
+        return low_mask, full_mask
 
     def read_depth(self, filename):
         # read pfm depth file
-        depth = np.load(filename) * 1000
+        full_depth = np.load(filename) * 1000
         if self.align > 0:
-            depth = depth[:(depth.shape[0] // self.align) * self.align, :(depth.shape[1] // self.align) * self.align]
+            full_depth = full_depth[:(full_depth.shape[0] // self.align) * self.align, :(full_depth.shape[1] // self.align) * self.align]
+        low_depth = full_depth
         for _ in range(self.ndownscale):
-            depth = depth[::2, ::2]
-        return depth
+            # low_depth = low_depth[::2, ::2]
+            low_depth = cv2.resize(low_depth, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+        return low_depth, full_depth
 
     def __getitem__(self, idx):
         pair = self.pairs[idx]
@@ -120,31 +126,50 @@ class RISDataset(Dataset):
             proj_matrices.append(proj_mat)
 
             if i == 0:  # reference view
+                depth, full_depth = self.read_depth(depth_filename)
+                if self.mask_mode == 'valid':
+                    mask = (depth != 0).astype(np.float32)
+                    full_mask = (full_depth != 0).astype(np.float32)
+
+                    #fix tb normalization bug
+                    mask[0, 0] = 0  
+                    mask[-1, -1] = 1 
+                    full_mask[0, 0] = 0  
+                    full_mask[-1, -1] = 1 
+                else:  # set depth range according to the object mask
+                    mask, full_mask = self.read_mask(mask_filename)
+                    depth_min = depth[mask.astype(np.bool)].min()
+                    depth_max = depth[mask.astype(np.bool)].max()
+                    depth_min = np.floor(depth_min // 100) * 100
+                    depth_max = np.ceil(depth_max // 100) * 100
+                    depth_interval = np.ceil(10 * (depth_max - depth_min) / (self.ndepths - 1)) / 10
+
                 # TODO: Why distinguish train and test here?
                 if self.mode == 'test':
                     depth_values = np.arange(depth_min, depth_interval * (self.ndepths - 0.5) + depth_min, depth_interval, dtype=np.float32)
                 else:
                     depth_values = np.arange(depth_min, depth_interval * self.ndepths + depth_min - EPS, depth_interval, dtype=np.float32)
-                
-                depth = self.read_depth(depth_filename)
-                if self.mask_mode == 'valid':
-                    mask = (depth != 0).astype(np.float32)
-
-                    #fix tb normalization bug
-                    mask[0, 0] = 0  
-                    mask[-1, -1] = 1 
-                else:
-                    mask = self.read_mask(mask_filename)
+                       
 
         imgs = np.stack(imgs).transpose([0, 3, 1, 2])
         proj_matrices = np.stack(proj_matrices)
 
-        return {"imgs": imgs,
-                "proj_matrices": proj_matrices,
-                "depth": depth,
-                "depth_values": depth_values,
-                "filename": f'{obj}/{view_id}' + '/{}/' + f'{cam_ids[0]}' + '{}',
-                "mask": mask}
+        if self.original_scale:
+            return {"imgs": imgs,
+                    "proj_matrices": proj_matrices,
+                    "low_depth": depth,
+                    "depth_values": depth_values,
+                    "filename": f'{obj}/{view_id}' + '/{}/' + f'{cam_ids[0]}' + '{}',
+                    "low_mask": mask,
+                    "mask": full_mask,
+                    "depth": full_depth}
+        else:
+            return {"imgs": imgs,
+                    "proj_matrices": proj_matrices,
+                    "depth_values": depth_values,
+                    "filename": f'{obj}/{view_id}' + '/{}/' + f'{cam_ids[0]}' + '{}',
+                    "mask": mask,
+                    "depth": depth}
 
 _dataset = RISDataset
 

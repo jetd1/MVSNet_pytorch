@@ -78,8 +78,8 @@ print_args(args)
 
 # dataset, dataloader
 MVSDataset = find_dataset_def(args.dataset)
-train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, align=32)
-test_dataset = MVSDataset(args.testpath, args.testlist, "test", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, align=32)
+train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
+test_dataset = MVSDataset(args.testpath, args.testlist, "test", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
 TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, drop_last=True)
 TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
 
@@ -120,7 +120,7 @@ def train():
                                                         last_epoch=start_epoch - 1)
 
     for epoch_idx in range(start_epoch, args.epochs):
-        print('Epoch {}:'.format(epoch_idx))
+        print('Epoch {}:'.format(epoch_idx + 1))
         lr_scheduler.step()
         global_step = len(TrainImgLoader) * epoch_idx
 
@@ -135,7 +135,7 @@ def train():
                 save_images(logger, 'train', image_outputs, global_step)
             del scalar_outputs, image_outputs
             print(
-                'Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs, batch_idx,
+                'Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx + 1, args.epochs, batch_idx + 1,
                                                                                      len(TrainImgLoader), loss,
                                                                                      time.time() - start_time))
 
@@ -159,7 +159,7 @@ def train():
                 save_images(logger, 'test', image_outputs, global_step)
             avg_test_scalars.update(scalar_outputs)
             del scalar_outputs, image_outputs
-            print('Epoch {}/{}, Iter {}/{}, test loss = {:.3f}, time = {:3f}'.format(epoch_idx, args.epochs, batch_idx,
+            print('Epoch {}/{}, Iter {}/{}, test loss = {:.3f}, time = {:3f}'.format(epoch_idx + 1, args.epochs, batch_idx + 1,
                                                                                      len(TestImgLoader), loss,
                                                                                      time.time() - start_time))
         save_scalars(logger, 'fulltest', avg_test_scalars.mean(), global_step)
@@ -193,6 +193,12 @@ def train_sample(sample, detailed_summary=False):
     depth_est = outputs["depth"]
 
     loss = model_loss(depth_est, depth_gt, mask)
+    if args.original_scale:
+        low_depth_est = outputs["low_depth"]
+        low_depth_gt = sample_cuda["low_depth"]
+        low_mask = sample_cuda["low_mask"]
+        loss += model_loss(low_depth_est, low_depth_gt, low_mask)
+
     loss.backward()
     optimizer.step()
 
@@ -206,6 +212,8 @@ def train_sample(sample, detailed_summary=False):
         scalar_outputs["thres2mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 2)
         scalar_outputs["thres4mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 4)
         scalar_outputs["thres8mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 8)
+        scalar_outputs["thres16mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 16)
+        scalar_outputs["thres32mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 32)
 
     return tensor2float(loss), tensor2float(scalar_outputs), image_outputs
 
@@ -235,6 +243,7 @@ def test_sample(sample, detailed_summary=True):
     scalar_outputs["thres4mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 4)
     scalar_outputs["thres8mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 8)
     scalar_outputs["thres16mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 16)
+    scalar_outputs["thres32mm_error"] = Thres_metrics(depth_est, depth_gt, mask > 0.5, 32)
 
     return tensor2float(loss), tensor2float(scalar_outputs), image_outputs
 

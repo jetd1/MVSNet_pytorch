@@ -76,40 +76,39 @@ class UpscaleNet(nn.Module):
         self.upsample = torch.nn.Upsample(scale_factor=4, mode='bilinear')
 
         self.imageFeatureNet = nn.Sequential(
-            ConvBnReLU(  3,  32),
-            ConvBnReLU( 32,  64),
-            ConvBnReLU( 64,  64),
+            ConvBnReLU(  3,  16),
+            ConvBnReLU( 16,  32),
+            ConvBnReLU( 32,  32),
         )
 
         self.depthFeatureNet1 = nn.Sequential(
             ConvBnReLU(  1,  32),
             ConvBnReLU( 32,  64),
             ConvBnReLU( 64, 128),
-            ConvBnReLU(128, 256),
         )
 
         self.deconv1 = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 4, 2, 1),
-            nn.ReflectionPad2d((1, 0, 1, 0)),
-            nn.AvgPool2d(2, stride=1),
-            nn.ReLU(inplace=True)
-        )
-
-        self.depthFeatureNet2 = nn.Sequential(
-            ConvBnReLU(128, 128),
-        )
-
-        self.deconv2 = nn.Sequential(
             nn.ConvTranspose2d(128, 64, 4, 2, 1),
             nn.ReflectionPad2d((1, 0, 1, 0)),
             nn.AvgPool2d(2, stride=1),
             nn.ReLU(inplace=True)
         )
 
+        self.depthFeatureNet2 = nn.Sequential(
+            ConvBnReLU(64, 64),
+        )
+
+        self.deconv2 = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, 4, 2, 1),
+            nn.ReflectionPad2d((1, 0, 1, 0)),
+            nn.AvgPool2d(2, stride=1),
+            nn.ReLU(inplace=True)
+        )
+
         self.outputNet = nn.Sequential(
-            ConvBnReLU(128, 64),
             ConvBnReLU( 64, 64),
             ConvBnReLU( 64, 32),
+            ConvBnReLU( 32, 32),
             nn.Conv2d(32, 1, 3, 1, 1)
         )
 
@@ -214,7 +213,7 @@ class MVSNet(nn.Module):
             refined_depth = self.upsample_network(depth, imgs[0]).squeeze(1)
             photometric_confidence = photometric_confidence.unsqueeze(1)
             photometric_confidence = F.interpolate(photometric_confidence, scale_factor=4, mode='bilinear').squeeze(1)
-            return {"depth": refined_depth, "photometric_confidence": photometric_confidence, 'org_depth': depth}
+            return {"depth": refined_depth, "photometric_confidence": photometric_confidence, 'low_depth': depth}
 
 
 def mvsnet_loss(depth_est, depth_gt, mask):

@@ -173,6 +173,7 @@ class MVSNet(nn.Module):
         ref_volume = ref_feature.unsqueeze(2).repeat(1, 1, num_depth, 1, 1)
         volume_sum = ref_volume
         volume_sq_sum = ref_volume ** 2
+
         del ref_volume
         for src_fea, src_proj in zip(src_features, src_projs):
             # warpped features
@@ -184,6 +185,7 @@ class MVSNet(nn.Module):
                 # TODO: this is only a temporal solution to save memory, better way?
                 volume_sum += warped_volume
                 volume_sq_sum += warped_volume.pow_(2)  # the memory of warped_volume has been modified
+
             del warped_volume
         # aggregate multiple feature volumes by variance
         volume_variance = volume_sq_sum.div_(num_views).sub_(volume_sum.div_(num_views).pow_(2))

@@ -2,10 +2,12 @@ from torch.utils.data import Dataset
 import numpy as np
 import os
 import math
+import cv2
 from PIL import Image
 from datasets.data_io import *
 
 EPS = 0.1
+cv2.setNumThreads(0)
 
 # the DTU dataset preprocessed by Yao Yao (only for training)
 class RISDataset(Dataset):
@@ -93,8 +95,8 @@ class RISDataset(Dataset):
             full_depth = full_depth[:(full_depth.shape[0] // self.align) * self.align, :(full_depth.shape[1] // self.align) * self.align]
         low_depth = full_depth
         for _ in range(self.ndownscale):
-            low_depth = low_depth[::2, ::2]
-            #low_depth = cv2.resize(low_depth, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+            # low_depth = low_depth[::2, ::2]
+            low_depth = cv2.resize(low_depth, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
         return low_depth, full_depth
 
     def __getitem__(self, idx):

@@ -80,7 +80,7 @@ print_args(args)
 MVSDataset = find_dataset_def(args.dataset)
 train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
 test_dataset = MVSDataset(args.testpath, args.testlist, "test", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
-TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, drop_last=True)
+TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=False, num_workers=8, drop_last=True)
 TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
 
 # model, optimizer
@@ -129,12 +129,20 @@ def train():
             start_time = time.time()
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             do_summary = global_step % args.summary_freq == 0
-            loss, scalar_outputs, image_outputs = train_sample(sample, detailed_summary=do_summary)
-            if do_summary:
-                save_scalars(logger, 'train', scalar_outputs, global_step)
-                save_images(logger, 'train', image_outputs, global_step)
-            del scalar_outputs, image_outputs
-            print(
+            try:
+                print(''.join(sample['filename']))
+                loss, scalar_outputs, image_outputs = train_sample(sample, detailed_summary=do_summary)
+            except:
+                print(f'Bad Sample: {sample["filename"]}')
+                import IPython
+                IPython.embed()
+                continue
+            else:
+                if do_summary:
+                    save_scalars(logger, 'train', scalar_outputs, global_step)
+                    save_images(logger, 'train', image_outputs, global_step)
+                del scalar_outputs, image_outputs
+                print(
                 'Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx + 1, args.epochs, batch_idx + 1,
                                                                                      len(TrainImgLoader), loss,
                                                                                      time.time() - start_time))

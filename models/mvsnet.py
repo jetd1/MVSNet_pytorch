@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+import time
 from .module import *
 
 
@@ -217,5 +219,16 @@ class MVSNet(nn.Module):
 
 
 def mvsnet_loss(depth_est, depth_gt, mask):
-    mask = mask > 0.5
-    return F.smooth_l1_loss(depth_est[mask], depth_gt[mask], size_average=True)
+    try:
+        mask = mask > 0.5
+        loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], size_average=True)
+    except Exception as e:
+        print(mask.shape)
+        print(depth_gt.shape)
+        print(depth_est.shape)
+        np.save(f'./err_depthgt_{time.time()}.npy', depth_gt.data.cpu().numpy())
+        np.save(f'./err_depthest_{time.time()}.npy', depth_est.data.cpu().numpy())
+        np.save(f'./err_mask_{time.time()}.npy', mask.data.cpu().numpy())
+        print(repr(e))
+        return depth_est.sum() * 0
+    return loss

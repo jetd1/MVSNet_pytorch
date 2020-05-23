@@ -24,9 +24,9 @@ class ConvBn(nn.Module):
 
 
 class ConvBnReLU3D(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1, dilation=1):
         super(ConvBnReLU3D, self).__init__()
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=pad, bias=False)
+        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=pad, dilation=dilation, bias=False)
         self.bn = nn.BatchNorm3d(out_channels)
 
     def forward(self, x):

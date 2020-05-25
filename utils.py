@@ -26,7 +26,7 @@ def load_my_state_dict(state_dict, model):
     own_state = model.state_dict()
     for name, param in state_dict.items():
         if name not in own_state:
-                continue
+            continue
         if isinstance(param, torch.nn.Parameter):
             # backwards compatibility for serialized parameters
             param = param.data

@@ -97,7 +97,7 @@ def save_depth():
     TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
 
     # model
-    model = MVSNet(refine=False)
+    model = MVSNet(refine=False, upsample=False)
     model = nn.DataParallel(model)
     model.cuda()
 

@@ -41,7 +41,7 @@ class CostRegNet(nn.Module):
         self.conv4 = ConvBnReLU3D(32, 32)
 
         self.conv5 = ConvBnReLU3D(32, 64, stride=2)
-        self.conv6 = ConvBnReLU3D(64, 64, dilation=2, pad=2)
+        self.conv6 = ConvBnReLU3D(64, 64)
 
         self.conv7 = nn.Sequential(
             nn.ConvTranspose3d(64, 32, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False),

@@ -17,6 +17,7 @@ from utils import *
 import gc
 import sys
 import datetime
+import matplotlib.pyplot as plt
 
 cudnn.benchmark = True
 
@@ -78,9 +79,10 @@ print_args(args)
 
 # dataset, dataloader
 MVSDataset = find_dataset_def(args.dataset)
-train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
+if args.mode != 'test':
+    train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
+    TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, drop_last=True)
 test_dataset = MVSDataset(args.testpath, args.testlist, "test", nviews=5, ndepth=args.numdepth, interval_scale=args.interval_scale, mask_mode=args.mask_mode, subset=args.subset, ndownscale=args.ndownscale, original_scale=args.original_scale, align=32)
-TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, drop_last=True)
 TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
 
 # model, optimizer
@@ -177,16 +179,36 @@ def train():
 
 def test():
     avg_test_scalars = DictAverageMeter()
+    os.makedirs(args.logdir, exist_ok=True)
+    global_idx = 0
     for batch_idx, sample in enumerate(TestImgLoader):
         start_time = time.time()
         loss, scalar_outputs, image_outputs = test_sample(sample, detailed_summary=True)
         avg_test_scalars.update(scalar_outputs)
+        if args.mode == 'test_j':
+            blen = image_outputs['depth_gt'].size(0)
+            for i in range(blen):
+                save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_depth_gt.png'), image_outputs['depth_gt'][i])
+                save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_depth_est.png'), image_outputs['depth_est'][i])
+                save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_ref_img.png'), image_outputs['ref_img'][i])     
+            global_idx += blen
         del scalar_outputs, image_outputs
         print('Iter {}/{}, test loss = {:.3f}, time = {:3f}'.format(batch_idx, len(TestImgLoader), loss,
                                                                     time.time() - start_time))
         if batch_idx % 100 == 0:
             print("Iter {}/{}, test results = {}".format(batch_idx, len(TestImgLoader), avg_test_scalars.mean()))
-    print("final", avg_test_scalars)
+    print("final", avg_test_scalars.mean())
+
+
+def save_img(f, t):
+    t = t.data.cpu().numpy()
+    if len(t.shape) == 2:
+        plt.imsave(f, t, cmap='rainbow')
+    elif len(t.shape) == 3:
+        t = t.transpose((1, 2, 0))
+        plt.imsave(f, t)
+    else:
+        raise NotImplemented   
 
 
 def train_sample(sample, detailed_summary=False):

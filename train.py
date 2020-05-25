@@ -185,9 +185,10 @@ def test():
         start_time = time.time()
         loss, scalar_outputs, image_outputs = test_sample(sample, detailed_summary=True)
         avg_test_scalars.update(scalar_outputs)
-        if args.mode == 'test_j':
+        if args.mode == 'test':
             blen = image_outputs['depth_gt'].size(0)
             for i in range(blen):
+                save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_depth_err.png'), torch.abs(image_outputs['depth_gt'][i].cpu() - image_outputs['depth_est'][i].cpu()))
                 save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_depth_gt.png'), image_outputs['depth_gt'][i])
                 save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_depth_est.png'), image_outputs['depth_est'][i])
                 save_img(os.path.join(args.logdir, f'{i+global_idx:05d}_ref_img.png'), image_outputs['ref_img'][i])     
